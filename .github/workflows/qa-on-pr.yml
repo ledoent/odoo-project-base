@@ -29,22 +29,37 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Start Odoo with demo data
         run: |
           docker run -d --name odoo --network host \
             -e HOST=localhost -e USER=odoo -e PASSWORD=odoo \
             odoo:19.0 \
-            odoo -d odoo_qa -i base,contacts,sale_management,purchase,stock,mrp,account,crm,project,hr,hr_attendance,hr_expense,calendar,event,fleet,lunch,maintenance \
+            odoo -d odoo_qa \
+            -i base,contacts,sale_management,purchase,stock,mrp,account,crm,project,hr,hr_attendance,hr_expense,calendar,event,fleet,lunch,maintenance \
             --without-demo= --stop-after-init --no-http
           docker wait odoo
           docker rm odoo
           docker run -d --name odoo --network host \
             -e HOST=localhost -e USER=odoo -e PASSWORD=odoo \
             odoo:19.0 -- -d odoo_qa
-          for i in $(seq 1 30); do curl -s http://localhost:8069/web/login > /dev/null && break; sleep 2; done
+          for i in $(seq 1 30); do
+            curl -s http://localhost:8069/web/login > /dev/null && break
+            sleep 2
+          done
+
+      - name: Pull QA image
+        run: docker pull ghcr.io/ledoent/odoo-qa:latest
 
       - name: Run QA tests
         run: |
+          mkdir -p test-results
           docker run --rm --network host \
             -e ODOO_URL=http://localhost:8069 \
             -e ODOO_DB=odoo_qa \
