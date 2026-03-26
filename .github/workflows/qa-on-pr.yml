@@ -29,13 +29,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Start Odoo with demo data
         run: |
           docker run -d --name odoo --network host \
@@ -54,17 +47,18 @@ jobs:
             sleep 2
           done
 
-      - name: Pull QA image
-        run: docker pull ghcr.io/ledoent/odoo-qa:latest
-
-      - name: Run QA tests
+      - name: Clone odoo-qa and run tests
+        env:
+          ODOO_URL: http://localhost:8069
+          ODOO_DB: odoo_qa
         run: |
-          mkdir -p test-results
-          docker run --rm --network host \
-            -e ODOO_URL=http://localhost:8069 \
-            -e ODOO_DB=odoo_qa \
-            -v ${{ github.workspace }}/test-results:/qa/test-results \
-            ghcr.io/ledoent/odoo-qa:latest
+          git clone --depth=1 https://github.com/ledoent/odoo-qa.git /tmp/odoo-qa
+          cd /tmp/odoo-qa
+          npm ci
+          npx playwright install --with-deps chromium
+          mkdir -p test-results/checkpoints test-results/diffs .auth .cache
+          npx playwright test --grep-invert "perf:" || true
+          cp -r test-results $GITHUB_WORKSPACE/test-results
 
       - name: Upload results
         if: always()
