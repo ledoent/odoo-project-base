@@ -1,0 +1,64 @@
+name: QA on PR
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize]
+  workflow_dispatch:
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      db:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: odoo
+          POSTGRES_PASSWORD: odoo
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start Odoo with demo data
+        run: |
+          docker run -d --name odoo --network host \
+            -e HOST=localhost -e USER=odoo -e PASSWORD=odoo \
+            odoo:19.0 \
+            odoo -d odoo_qa -i base,contacts,sale_management,purchase,stock,mrp,account,crm,project,hr,hr_attendance,hr_expense,calendar,event,fleet,lunch,maintenance \
+            --without-demo= --stop-after-init --no-http
+          docker wait odoo
+          docker rm odoo
+          docker run -d --name odoo --network host \
+            -e HOST=localhost -e USER=odoo -e PASSWORD=odoo \
+            odoo:19.0 -- -d odoo_qa
+          for i in $(seq 1 30); do curl -s http://localhost:8069/web/login > /dev/null && break; sleep 2; done
+
+      - name: Run QA tests
+        run: |
+          docker run --rm --network host \
+            -e ODOO_URL=http://localhost:8069 \
+            -e ODOO_DB=odoo_qa \
+            -v ${{ github.workspace }}/test-results:/qa/test-results \
+            ghcr.io/ledoent/odoo-qa:latest
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-results
+          path: test-results/
+          retention-days: 14
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f odoo 2>/dev/null || true

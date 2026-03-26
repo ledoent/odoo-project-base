@@ -1,0 +1,89 @@
+# Odoo Project Base — Odoo + Postgres + QA
+#
+# Usage:
+#   docker compose up -d odoo          # Start Odoo with demo data
+#   docker compose run --rm qa          # Run QA tests
+#   docker compose run --rm qa-baseline # Capture baseline screenshots
+#
+# First run initializes the database with demo data.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: odoo
+      POSTGRES_DB: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+
+  odoo:
+    image: odoo:${ODOO_VERSION:-19.0}
+    depends_on:
+      - db
+    ports:
+      - "${ODOO_PORT:-8069}:8069"
+    environment:
+      HOST: db
+      USER: odoo
+      PASSWORD: odoo
+    volumes:
+      - odoo-data:/var/lib/odoo
+      - ./addons:/mnt/extra-addons
+    command: ["--", "-d", "${ODOO_DB:-odoo}", "--without-demo="]
+
+  # Initialize database with modules (run once)
+  odoo-init:
+    image: odoo:${ODOO_VERSION:-19.0}
+    depends_on:
+      - db
+    environment:
+      HOST: db
+      USER: odoo
+      PASSWORD: odoo
+    volumes:
+      - odoo-data:/var/lib/odoo
+      - ./addons:/mnt/extra-addons
+    command: >
+      odoo -d ${ODOO_DB:-odoo}
+        -i base,contacts,sale_management,purchase,stock,mrp,account,crm,project,hr,hr_attendance,hr_expense,calendar,event,fleet,lunch,maintenance
+        --without-demo=
+        --stop-after-init
+        --no-http
+
+  # Run QA tests
+  qa:
+    image: ghcr.io/ledoent/odoo-qa:latest
+    depends_on:
+      - odoo
+    environment:
+      ODOO_URL: http://odoo:8069
+      ODOO_DB: ${ODOO_DB:-odoo}
+      ODOO_USER: admin
+      ODOO_PASSWORD: admin
+    volumes:
+      - ./test-results:/qa/test-results
+
+  # Capture baseline screenshots
+  qa-baseline:
+    image: ghcr.io/ledoent/odoo-qa:latest
+    depends_on:
+      - odoo
+    entrypoint: /bin/sh
+    command: >
+      -c "mkdir -p test-results/checkpoints test-results/diffs .auth .cache &&
+          node scripts/capture-manifest.mjs > test-results/baseline-manifest.json &&
+          npx playwright test --grep-invert 'perf:'"
+    environment:
+      ODOO_URL: http://odoo:8069
+      ODOO_DB: ${ODOO_DB:-odoo}
+      ODOO_USER: admin
+      ODOO_PASSWORD: admin
+    volumes:
+      - ./baseline:/qa/test-results
+
+volumes:
+  pgdata:
+  odoo-data:
