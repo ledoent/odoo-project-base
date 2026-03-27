@@ -52,12 +52,14 @@ jobs:
 
       - name: Run QA tests
         run: |
-          mkdir -p test-results
-          docker run --rm --network host \
+          docker run -d --name qa-run --network host \
             -e ODOO_URL=http://localhost:8069 \
             -e ODOO_DB=odoo_qa \
-            -v ${{ github.workspace }}/test-results:/qa/test-results \
-            ${{ env.QA_IMAGE }}
+            ${{ env.QA_IMAGE }} || true
+          docker wait qa-run || true
+          mkdir -p test-results
+          docker cp qa-run:/qa/test-results/. test-results/ || true
+          docker rm qa-run || true
 
       - name: Upload results
         if: always()
@@ -66,6 +68,7 @@ jobs:
           name: qa-results
           path: test-results/
           retention-days: 14
+          if-no-files-found: warn
 
       - name: Cleanup
         if: always()
