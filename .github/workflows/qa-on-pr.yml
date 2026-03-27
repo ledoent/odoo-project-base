@@ -6,6 +6,9 @@ on:
     types: [opened, synchronize]
   workflow_dispatch:
 
+env:
+  QA_IMAGE: us-central1-docker.pkg.dev/kendall-ledo/docker-repo/odoo-qa:latest
+
 jobs:
   qa:
     runs-on: ubuntu-latest
@@ -47,18 +50,14 @@ jobs:
             sleep 2
           done
 
-      - name: Clone odoo-qa and run tests
-        env:
-          ODOO_URL: http://localhost:8069
-          ODOO_DB: odoo_qa
+      - name: Run QA tests
         run: |
-          git clone --depth=1 https://github.com/ledoent/odoo-qa.git /tmp/odoo-qa
-          cd /tmp/odoo-qa
-          npm ci
-          npx playwright install --with-deps chromium
-          mkdir -p test-results/checkpoints test-results/diffs .auth .cache
-          npx playwright test --grep-invert "perf:" || true
-          cp -r test-results $GITHUB_WORKSPACE/test-results
+          mkdir -p test-results
+          docker run --rm --network host \
+            -e ODOO_URL=http://localhost:8069 \
+            -e ODOO_DB=odoo_qa \
+            -v ${{ github.workspace }}/test-results:/qa/test-results \
+            ${{ env.QA_IMAGE }}
 
       - name: Upload results
         if: always()
